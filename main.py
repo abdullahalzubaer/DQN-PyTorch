@@ -1,24 +1,24 @@
 # %matplotlib inline
-import gym
+import copy
 import math
 import random
-import numpy as np
-import matplotlib
-import matplotlib.pyplot as plt
 from collections import namedtuple
 from itertools import count
-from PIL import Image
+
+import gym
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
+import torch.optim as optim
 import torchvision.transforms as T
-import copy
+from PIL import Image
 
 
 # This DQN class from pytorch tutorial.
 class DQN(nn.Module):
-
     def __init__(self, h, w, outputs):
         super(DQN, self).__init__()
         self.conv1 = nn.Conv2d(3, 16, kernel_size=5, stride=2)
@@ -32,6 +32,7 @@ class DQN(nn.Module):
         # and therefore the input image size, so compute it.
         def conv2d_size_out(size, kernel_size=5, stride=2):
             return (size - (kernel_size - 1) - 1) // stride + 1
+
         convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(w)))
         convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(h)))
         linear_input_size = convw * convh * 32
@@ -47,20 +48,19 @@ class DQN(nn.Module):
         return self.head(x.view(x.size(0), -1))
 
 
-Experience = namedtuple(
-    'Experience', ('state', 'action', 'next_state', 'reward')
-)
+Experience = namedtuple("Experience", ("state", "action", "next_state", "reward"))
 
 
 # ReplayMemory class, which is where these experiences will be stored.
 
-class ReplayMemory():
 
-    '''This is where the experiences will be stored, it has three functions:
+class ReplayMemory:
+
+    """This is where the experiences will be stored, it has three functions:
     push(self,experience)
     sample(self, batch_size)
     can_provide_sample(self,batch_size)
-    '''
+    """
 
     def __init__(self, capacity):
         self.capacity = capacity
@@ -75,26 +75,29 @@ class ReplayMemory():
             self.memory[self.push_count % self.capacity] = experience
         self.push_count += 1
 
-    def sample(self, batch_size):  # return random batches of experiences from replay buffer - to train DQN
-        return (random.sample(self.memory, batch_size))
+    def sample(
+        self, batch_size
+    ):  # return random batches of experiences from replay buffer - to train DQN
+        return random.sample(self.memory, batch_size)
 
     # tell us whether or not we can smaple from the moemory.
     def can_provide_sample(self, batch_size):
         return len(self.memory) >= batch_size
 
 
-class EpsilonGreedyStrategy():
+class EpsilonGreedyStrategy:
     def __init__(self, start, end, decay):
         self.start = start
         self.end = end
         self.decay = decay
 
     def get_exploration_rate(self, current_step):
-        return (self.end + (self.start - self.end) * math.exp(-1. * current_step * self.decay))
+        return self.end + (self.start - self.end) * math.exp(
+            -1.0 * current_step * self.decay
+        )
 
 
-class Agent():
-
+class Agent:
     def __init__(self, strategy, num_actions, device):
         self.current_step = 0
         self.strategy = strategy
@@ -113,11 +116,11 @@ class Agent():
                 return policy_net(state).argmax(dim=1).to(self.device)  # exploiting
 
 
-class CartPoleEnvManager():
+class CartPoleEnvManager:
     def __init__(self, device):
         self.device = device
         # unwrapped allows to have behind the scene dynamics of the environment.
-        self.env = gym.make('CartPole-v0').unwrapped
+        self.env = gym.make("CartPole-v0").unwrapped
         self.env.reset()
         self.current_screen = None  # It means we are at the start of the episode.
         self.done = False
@@ -129,7 +132,7 @@ class CartPoleEnvManager():
     def close(self):
         self.env.close()
 
-    def render(self, mode='human'):
+    def render(self, mode="human"):
         return self.env.render(mode)
 
     def num_actions_available(self):
@@ -143,8 +146,12 @@ class CartPoleEnvManager():
     def just_starting(self):
         return self.current_screen is None
 
-    def get_state(self):  # return the current state of the environment in the form of a processed image of the screen
-        if self.just_starting() or self.done:  # if we are just starting the game or the episode is over
+    def get_state(
+        self,
+    ):  # return the current state of the environment in the form of a processed image of the screen
+        if (
+            self.just_starting() or self.done
+        ):  # if we are just starting the game or the episode is over
             self.current_screen = self.get_processed_screen()
             black_screen = torch.zeros_like(self.current_screen)
             return black_screen
@@ -163,11 +170,13 @@ class CartPoleEnvManager():
         return screen.shape[3]
 
     def get_processed_screen(self):  # return processed screen from the environment
-        screen = self.render('rgb_array').transpose((2, 0, 1))
+        screen = self.render("rgb_array").transpose((2, 0, 1))
         screen = self.crop_screen(screen)
-        return (self.transform_screen_data(screen))
+        return self.transform_screen_data(screen)
 
-    def crop_screen(self, screen):  # accepts a screen and will return a cropped version of it
+    def crop_screen(
+        self, screen
+    ):  # accepts a screen and will return a cropped version of it
         screen_height = screen.shape[1]
 
         top = int(screen_height * 0.4)
@@ -175,24 +184,25 @@ class CartPoleEnvManager():
         screen = screen[:, top:bottom, :]
         return screen
 
-    def transform_screen_data(self, screen):  # data conversion and rescaling to the cropped image
+    def transform_screen_data(
+        self, screen
+    ):  # data conversion and rescaling to the cropped image
         screen = np.ascontiguousarray(screen, dtype=np.float32) / 255
         screen = torch.from_numpy(screen)
-        resize = T.Compose([
-            T.ToPILImage(), T.Resize((40, 90)), T.ToTensor()
-        ])
+        resize = T.Compose([T.ToPILImage(), T.Resize((40, 90)), T.ToTensor()])
 
         return resize(screen).unsqueeze(0).to(self.device)
 
 
 # Functions we'll have available to us during training to plot our performance
 
+
 def plot(values, moving_avg_period):
     plt.figure(2)
     plt.clf()
-    plt.title('Training...')
-    plt.xlabel('Episode')
-    plt.ylabel('Duration')
+    plt.title("Training...")
+    plt.xlabel("Episode")
+    plt.ylabel("Duration")
     plt.plot(values)
 
     moving_avg = get_moving_average(moving_avg_period, values)
@@ -200,16 +210,25 @@ def plot(values, moving_avg_period):
     plt.pause(0.001)
     print(f"Episodic reward for episode {i}: {timestep}")
     if timestep == 100:
-        print("Episode", len(values), "\n",
-              moving_avg_period, "episode moving avg:", moving_avg[-1])
+        print(
+            "Episode",
+            len(values),
+            "\n",
+            moving_avg_period,
+            "episode moving avg:",
+            moving_avg[-1],
+        )
 
 
 def get_moving_average(period, values):
     values = torch.tensor(values, dtype=torch.float)
     if len(values) >= period:
-        moving_avg = values.unfold(dimension=0, size=period, step=1) \
-            .mean(dim=1).flatten(start_dim=0)
-        moving_avg = torch.cat((torch.zeros(period-1), moving_avg))
+        moving_avg = (
+            values.unfold(dimension=0, size=period, step=1)
+            .mean(dim=1)
+            .flatten(start_dim=0)
+        )
+        moving_avg = torch.cat((torch.zeros(period - 1), moving_avg))
         return moving_avg.numpy()
     else:
         moving_avg = torch.zeros(len(values))
@@ -256,22 +275,25 @@ def extract_tensors(experiences):
     return (t1, t2, t3, t4)
 
 
-class QValues():
+class QValues:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    @ staticmethod
+    @staticmethod
     def get_current(policy_net, states, actions):
         return policy_net(states).gather(dim=1, index=actions.unsqueeze(-1))
 
-    @ staticmethod
+    @staticmethod
     def get_next(target_net, next_states):
-        final_state_locations = next_states.flatten(start_dim=1).max(dim=1)[
-            0].eq(0).type(torch.bool)
-        non_final_state_locations = (final_state_locations == False)
+        final_state_locations = (
+            next_states.flatten(start_dim=1).max(dim=1)[0].eq(0).type(torch.bool)
+        )
+        non_final_state_locations = final_state_locations == False
         non_final_states = next_states[non_final_state_locations]
         batch_size = next_states.shape[0]
         values = torch.zeros(batch_size).to(QValues.device)
-        values[non_final_state_locations] = target_net(non_final_states).max(dim=1)[0].detach()
+        values[non_final_state_locations] = (
+            target_net(non_final_states).max(dim=1)[0].detach()
+        )
         return values
 
 
